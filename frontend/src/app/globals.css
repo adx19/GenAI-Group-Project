@@ -1,0 +1,59 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --primary: 250 84% 60%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 250 95% 96%;
+    --accent-foreground: 250 84% 40%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 91%;
+    --input: 214 32% 91%;
+    --ring: 250 84% 60%;
+    --radius: 0.75rem;
+  }
+  .dark {
+    --background: 222 47% 6%;
+    --foreground: 210 40% 98%;
+    --card: 222 47% 9%;
+    --card-foreground: 210 40% 98%;
+    --primary: 250 84% 65%;
+    --primary-foreground: 222 47% 6%;
+    --secondary: 217 33% 17%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 17%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 250 50% 20%;
+    --accent-foreground: 250 95% 90%;
+    --destructive: 0 63% 45%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217 33% 20%;
+    --input: 217 33% 20%;
+    --ring: 250 84% 65%;
+  }
+  * { @apply border-border; }
+  body { @apply bg-background text-foreground antialiased; }
+}
+
+.glass {
+  background: linear-gradient(135deg, hsl(var(--card) / 0.6), hsl(var(--card) / 0.3));
+  backdrop-filter: blur(12px);
+  border: 1px solid hsl(var(--border));
+}
+.hero-grad {
+  background:
+    radial-gradient(60% 50% at 20% 10%, hsl(250 95% 70% / 0.25), transparent 60%),
+    radial-gradient(50% 40% at 80% 20%, hsl(200 95% 60% / 0.20), transparent 60%),
+    radial-gradient(60% 60% at 50% 100%, hsl(280 95% 60% / 0.18), transparent 60%);
+}
