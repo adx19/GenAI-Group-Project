@@ -26,7 +26,6 @@ class ImageSearchService:
             CLIPModel
             .from_pretrained(
                 "openai/clip-vit-base-patch32",
-                local_files_only=True
             )   
             .to(self.device)
         )
@@ -35,7 +34,6 @@ class ImageSearchService:
             CLIPProcessor
             .from_pretrained(
                 "openai/clip-vit-base-patch32",
-                local_files_only=True
             )       
         )
 
