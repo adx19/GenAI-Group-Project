@@ -19,9 +19,39 @@ router = APIRouter(
     tags=["Search"]
 )
 
-text_service = TextSearchService()
-image_service = ImageSearchService()
-multimodal_service = MultimodalSearchService()
+text_service = None
+image_service = None
+multimodal_service = None
+
+
+def get_text_service():
+    global text_service
+
+    if text_service is None:
+        print("Loading Text Search Service...")
+        text_service = TextSearchService()
+
+    return text_service
+
+
+def get_image_service():
+    global image_service
+
+    if image_service is None:
+        print("Loading Image Search Service...")
+        image_service = ImageSearchService()
+
+    return image_service
+
+
+def get_multimodal_service():
+    global multimodal_service
+
+    if multimodal_service is None:
+        print("Loading Multimodal Search Service...")
+        multimodal_service = MultimodalSearchService()
+
+    return multimodal_service
 
 TEMP_UPLOAD_DIR = Path("temp_uploads")
 TEMP_UPLOAD_DIR.mkdir(exist_ok=True)
@@ -84,7 +114,7 @@ class TextSearchRequest(BaseModel):
 @router.post("/text")
 def text_search(request: TextSearchRequest):
 
-    results = text_service.search(
+    results = get_text_service().search(
         query=request.query,
         top_k=request.top_k
     )
@@ -115,7 +145,7 @@ async def image_search(
 
     try:
 
-        results = image_service.search(
+        results = get_image_service().search(
             image_path=str(file_path),
             top_k=10
         )
@@ -152,7 +182,7 @@ async def multimodal_search(
 
     try:
 
-        results = multimodal_service.search(
+        results = get_multimodal_service().search(
             text_query=query,
             image_path=str(file_path),
             top_k=10
