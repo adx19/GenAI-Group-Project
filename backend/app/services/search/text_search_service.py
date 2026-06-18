@@ -13,7 +13,7 @@ from app.services.analytics.search_tracking_service import (SearchTrackingServic
 class TextSearchService:
   def __init__(self):
 
-    self.model = SentenceTransformer("all-MiniLM-l6-v2", local_files_only=True)
+    self.model = SentenceTransformer("all-MiniLM-l6-v2")
 
     self.index = faiss.read_index("faiss_indexes/text_index.faiss")
 
