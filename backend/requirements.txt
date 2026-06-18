@@ -19,9 +19,14 @@ pandas
 
 faiss-cpu==1.14.2
 
-sentence-transformers==5.5.1
-torch==2.12.0
-transformers
+# torch: CPU-only slim build to minimize Railway memory footprint.
+# The GPU build (default) is ~800 MB installed; CPU-only is ~200 MB.
+torch==2.2.2+cpu --extra-index-url https://download.pytorch.org/whl/cpu
+
+# transformers: used by CLIPModel + CLIPProcessor for image search.
+# sentence-transformers has been removed — it adds ~100 MB overhead
+# and was not the model used to build the FAISS index.
+transformers==4.40.0
 
 google-generativeai==0.8.6
 
