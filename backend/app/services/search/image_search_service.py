@@ -1,4 +1,7 @@
 import gc
+import os
+import sys
+import traceback
 
 import faiss
 import numpy as np
@@ -17,85 +20,162 @@ class ImageSearchService:
 
     def __init__(self):
 
-        print("[ImageSearchService] STEP 0 - Initializing ImageSearchService...")
+        print("[ImageSearchService] STEP 0 - Initializing ImageSearchService...", flush=True)
+        print(f"[ImageSearchService] Python version : {sys.version}", flush=True)
+        print(f"[ImageSearchService] Working dir    : {os.getcwd()}", flush=True)
 
         # ------------------------------------------------------------------ #
-        # Model: SentenceTransformer with clip-ViT-B-32                       #
-        # Produces 512-dimensional L2-normalized embeddings for PIL images.   #
-        # Do NOT mix with CLIPModel / CLIPProcessor / get_image_features.     #
+        # STEP 1 — SentenceTransformer / CLIP model                           #
+        # Most likely failure point on Railway:                                #
+        #   - HuggingFace download timeout (no cached model)                  #
+        #   - OOM during model weight allocation                               #
+        #   - TRANSFORMERS_OFFLINE=1 set but no cached model present          #
         # ------------------------------------------------------------------ #
-        self.model = SentenceTransformer("clip-ViT-B-32")
+        print("[ImageSearchService] STEP 1a - Attempting to load SentenceTransformer('clip-ViT-B-32')...", flush=True)
+        print(
+            f"[ImageSearchService] STEP 1a - HF cache dir: "
+            f"{os.environ.get('SENTENCE_TRANSFORMERS_HOME', os.environ.get('HF_HOME', '<default>'))}",
+            flush=True
+        )
 
-        # Inference-only: disable gradient tracking for the entire model.
-        # This prevents PyTorch from building computation graphs during
-        # encode(), which would silently retain large intermediate tensors
-        # in memory for every request.
-        self.model.eval()
-        for param in self.model.parameters():
-            param.requires_grad_(False)
+        try:
+            self.model = SentenceTransformer("clip-ViT-B-32")
+        except Exception:
+            print(
+                "[ImageSearchService] STEP 1a - FAILED loading SentenceTransformer:\n"
+                + traceback.format_exc(),
+                flush=True,
+            )
+            raise RuntimeError(
+                "ImageSearchService: SentenceTransformer('clip-ViT-B-32') failed to load. "
+                "Check Railway logs for full traceback. "
+                "Likely cause: HuggingFace download failed or OOM during weight allocation."
+            )
 
-        print("[ImageSearchService] STEP 1 - Model loaded (clip-ViT-B-32 via SentenceTransformer).")
+        print("[ImageSearchService] STEP 1b - SentenceTransformer loaded. Switching to eval mode...", flush=True)
+
+        try:
+            # Inference-only: disable gradient tracking for the entire model.
+            self.model.eval()
+            for param in self.model.parameters():
+                param.requires_grad_(False)
+        except Exception:
+            print(
+                "[ImageSearchService] STEP 1b - FAILED setting eval/no_grad:\n"
+                + traceback.format_exc(),
+                flush=True,
+            )
+            raise
+
+        print("[ImageSearchService] STEP 1 - Model loaded and configured (clip-ViT-B-32).", flush=True)
 
         # ------------------------------------------------------------------ #
-        # FAISS index                                                          #
+        # STEP 2 — FAISS index                                                 #
+        # Failure modes:                                                        #
+        #   - File not deployed to Railway (not committed to git)              #
+        #   - Wrong working directory (CWD not /backend)                       #
+        #   - Corrupted .faiss file                                            #
         # ------------------------------------------------------------------ #
-        self.index = faiss.read_index("faiss_indexes/image_index.faiss")
+        faiss_path = "faiss_indexes/image_index.faiss"
+        print(f"[ImageSearchService] STEP 2a - Loading FAISS index from: {os.path.abspath(faiss_path)}", flush=True)
+        print(f"[ImageSearchService] STEP 2a - File exists: {os.path.isfile(faiss_path)}", flush=True)
+
+        try:
+            self.index = faiss.read_index(faiss_path)
+        except Exception:
+            print(
+                f"[ImageSearchService] STEP 2a - FAILED loading FAISS index '{faiss_path}':\n"
+                + traceback.format_exc(),
+                flush=True,
+            )
+            raise RuntimeError(
+                f"ImageSearchService: faiss.read_index('{faiss_path}') failed. "
+                f"Absolute path tried: {os.path.abspath(faiss_path)}. "
+                f"File exists on disk: {os.path.isfile(faiss_path)}. "
+                f"Check that faiss_indexes/image_index.faiss is committed and deployed."
+            )
 
         print(
             f"[ImageSearchService] STEP 2 - FAISS index loaded. "
-            f"Total vectors: {self.index.ntotal}, "
-            f"Dimension: {self.index.d}"
+            f"Total vectors: {self.index.ntotal}, Dimension: {self.index.d}",
+            flush=True,
         )
 
         # ------------------------------------------------------------------ #
-        # Product ID mapping (parallel array to FAISS index rows)             #
+        # STEP 3 — Product ID mapping (.npy)                                   #
+        # Failure modes:                                                        #
+        #   - File not deployed to Railway                                     #
+        #   - Wrong working directory                                          #
+        #   - File saved with allow_pickle=True but loaded with False          #
         # ------------------------------------------------------------------ #
-        self.product_ids = np.load(
-            "embeddings/image/image_product_ids.npy",
-            allow_pickle=False,
-        )
+        npy_path = "embeddings/image/image_product_ids.npy"
+        print(f"[ImageSearchService] STEP 3a - Loading product IDs from: {os.path.abspath(npy_path)}", flush=True)
+        print(f"[ImageSearchService] STEP 3a - File exists: {os.path.isfile(npy_path)}", flush=True)
+
+        try:
+            self.product_ids = np.load(npy_path, allow_pickle=False)
+        except Exception:
+            print(
+                f"[ImageSearchService] STEP 3a - FAILED loading product IDs '{npy_path}':\n"
+                + traceback.format_exc(),
+                flush=True,
+            )
+            raise RuntimeError(
+                f"ImageSearchService: np.load('{npy_path}') failed. "
+                f"Absolute path tried: {os.path.abspath(npy_path)}. "
+                f"File exists on disk: {os.path.isfile(npy_path)}."
+            )
 
         print(
-            f"[ImageSearchService] STEP 3 - Product IDs loaded. "
-            f"Count: {len(self.product_ids)}"
+            f"[ImageSearchService] STEP 3 - Product IDs loaded. Count: {len(self.product_ids)}",
+            flush=True,
         )
 
-        # Sanity-check: FAISS vectors must equal product_ids entries
+        # ------------------------------------------------------------------ #
+        # STEP 4 — Alignment check                                             #
+        # ------------------------------------------------------------------ #
         if self.index.ntotal != len(self.product_ids):
-            raise ValueError(
-                f"[ImageSearchService] DIMENSION MISMATCH: "
+            msg = (
+                f"[ImageSearchService] STEP 4 - ALIGNMENT MISMATCH: "
                 f"FAISS has {self.index.ntotal} vectors but "
                 f"product_ids has {len(self.product_ids)} entries. "
                 f"Re-run the indexing script to rebuild both files together."
             )
+            print(msg, flush=True)
+            raise ValueError(msg)
 
-        print("[ImageSearchService] STEP 4 - ImageSearchService ready.")
+        print("[ImageSearchService] STEP 4 - ImageSearchService ready. All checks passed.", flush=True)
 
     # ---------------------------------------------------------------------- #
     # search()                                                                 #
     # ---------------------------------------------------------------------- #
     def search(self, image_path, top_k=5):
 
-        print(f"[ImageSearchService] Image received: {image_path}")
+        print(f"[ImageSearchService] Image received: {image_path}", flush=True)
 
         # ------------------------------------------------------------------ #
-        # 1. Load and preprocess the image — use context manager so the       #
-        #    PIL bitmap is released from memory as soon as encoding is done.   #
+        # 1. Load image — context manager releases PIL bitmap immediately      #
+        #    after encoding, before any DB work.                               #
         # ------------------------------------------------------------------ #
-        with Image.open(image_path).convert("RGB") as image:
-
-            # -------------------------------------------------------------- #
-            # 2. Encode with SentenceTransformer inside torch.no_grad()       #
-            #    - no_grad(): zero gradient graph overhead per request         #
-            #    - normalize_embeddings=True: L2-normalised, matches index     #
-            #    - convert_to_numpy=True: returns np.ndarray, releases tensor  #
-            # -------------------------------------------------------------- #
-            with torch.no_grad():
-                query_embedding = self.model.encode(
-                    image,
-                    convert_to_numpy=True,
-                    normalize_embeddings=True,
-                ).astype("float32")
+        try:
+            with Image.open(image_path).convert("RGB") as image:
+                # ---------------------------------------------------------- #
+                # 2. Encode — torch.no_grad() prevents gradient graph         #
+                #    accumulation (memory leak) across requests.               #
+                # ---------------------------------------------------------- #
+                with torch.no_grad():
+                    query_embedding = self.model.encode(
+                        image,
+                        convert_to_numpy=True,
+                        normalize_embeddings=True,
+                    ).astype("float32")
+        except Exception:
+            print(
+                f"[ImageSearchService] FAILED during image encode '{image_path}':\n"
+                + traceback.format_exc(),
+                flush=True,
+            )
+            raise
 
         # Guarantee shape is (1, dim) for FAISS
         if query_embedding.ndim == 1:
@@ -103,10 +183,10 @@ class ImageSearchService:
 
         print(
             f"[ImageSearchService] Embedding shape: {query_embedding.shape} "
-            f"(FAISS index dim: {self.index.d})"
+            f"(FAISS index dim: {self.index.d})",
+            flush=True,
         )
 
-        # Guard: embedding dimension must match index
         if query_embedding.shape[1] != self.index.d:
             raise ValueError(
                 f"[ImageSearchService] Embedding dim {query_embedding.shape[1]} "
@@ -121,14 +201,14 @@ class ImageSearchService:
 
         print(
             f"[ImageSearchService] FAISS search completed. "
-            f"Raw indices: {indices[0].tolist()}"
+            f"Raw indices: {indices[0].tolist()}",
+            flush=True,
         )
 
-        # Free the embedding array immediately — no longer needed
         del query_embedding
 
         # ------------------------------------------------------------------ #
-        # 4. Resolve product IDs and fetch from DB                            #
+        # 4. Resolve product IDs → DB                                          #
         # ------------------------------------------------------------------ #
         db = SessionLocal()
 
@@ -137,7 +217,6 @@ class ImageSearchService:
 
             for idx, distance in zip(indices[0], distances[0]):
 
-                # FAISS returns -1 when fewer than top_k results exist
                 if idx < 0 or idx >= len(self.product_ids):
                     continue
 
@@ -157,10 +236,10 @@ class ImageSearchService:
                         }
                     )
 
-            print(f"[ImageSearchService] Results returned: {len(results)}")
+            print(f"[ImageSearchService] Results returned: {len(results)}", flush=True)
 
             # -------------------------------------------------------------- #
-            # 5. Analytics tracking                                            #
+            # 5. Analytics                                                      #
             # -------------------------------------------------------------- #
             tracker = SearchTrackingService()
             tracker.log_search(

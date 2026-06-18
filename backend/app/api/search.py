@@ -1,5 +1,6 @@
 from pathlib import Path
 import shutil
+import traceback
 import uuid
 
 from fastapi import APIRouter
@@ -40,13 +41,20 @@ def get_image_service():
     global image_service
 
     if image_service is None:
-        print("[image_service] Loading Image Search Service (first request)...")
+        print("[image_service] Loading Image Search Service (first request)...", flush=True)
 
         from app.services.search.image_search_service import ImageSearchService
 
-        image_service = ImageSearchService()
-
-        print("[image_service] Image Search Service ready.")
+        try:
+            image_service = ImageSearchService()
+            print("[image_service] Image Search Service ready.", flush=True)
+        except Exception:
+            print(
+                "[image_service] FAILED to initialize ImageSearchService:\n"
+                + traceback.format_exc(),
+                flush=True,
+            )
+            raise
 
     return image_service
 
