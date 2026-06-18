@@ -58,21 +58,21 @@ class ImageSearchService:
         print("[ImageSearchService] STEP 1a - CLIPProcessor loaded.", flush=True)
 
         # ------------------------------------------------------------------ #
-        # STEP 1b — Load CLIPModel in float16 with low_cpu_mem_usage          #
-        #                                                                      #
-        # WHY float16:                                                         #
-        #   CLIPModel in float32 = ~600 MB RAM                                #
-        #   CLIPModel in float16 = ~300 MB RAM                                #
-        #   Railway Starter plan has 512 MB total — float32 OOM-kills.        #
-        #                                                                      #
-        # WHY NOT SentenceTransformer:                                         #
-        #   The FAISS index was built with CLIPModel.get_image_features(),     #
-        #   not SentenceTransformer.encode(). Using the wrong loader produces  #
-        #   mismatched query vectors and wrong search results.                 #
-        #   SentenceTransformer also adds ~100 MB of wrapper overhead.        #
+        # STEP 1b — Load CLIPModel in float16                                #
+        #                                                                    #
+        # WHY float16:                                                       #
+        #   CLIPModel in float32 = ~600 MB RAM                               #
+        #   CLIPModel in float16 = ~300 MB RAM                               #
+        #   Railway Starter plan has 512 MB total — float32 OOM-kills.       #
+        #                                                                    #
+        # WHY NOT SentenceTransformer:                                       #
+        #   The FAISS index was built with CLIPModel.get_image_features(),   #
+        #   not SentenceTransformer.encode(). Using the wrong loader produces#
+        #   mismatched query vectors and wrong search results.               #
+        #   SentenceTransformer also adds ~100 MB of wrapper overhead.       #
         # ------------------------------------------------------------------ #
         print(
-            f"[ImageSearchService] STEP 1b - Loading CLIPModel (float16, low_cpu_mem_usage) "
+            f"[ImageSearchService] STEP 1b - Loading CLIPModel (float16) "
             f"from '{_CLIP_MODEL_NAME}'...",
             flush=True,
         )
@@ -81,7 +81,6 @@ class ImageSearchService:
             self.model = CLIPModel.from_pretrained(
                 _CLIP_MODEL_NAME,
                 torch_dtype=torch.float16,
-                low_cpu_mem_usage=True,
             )
             self.model.eval()
         except Exception:

@@ -14,7 +14,7 @@ python-multipart==0.0.32
 requests==2.34.2
 pillow==12.2.0
 
-numpy
+numpy==1.26.4
 pandas
 
 faiss-cpu==1.14.2

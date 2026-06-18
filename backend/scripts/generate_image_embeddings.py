@@ -83,7 +83,7 @@ def main():
                 )
 
             embedding = (
-                outputs.pooler_output
+                outputs
                 .cpu()
                 .numpy()
                 .flatten()

@@ -1,26 +1,39 @@
 import faiss
 import numpy as np
+import torch
+import torch.nn.functional as F
+from transformers import AutoTokenizer, AutoModel
+
 import app.models
 from app.models.product import Product
 from app.models.enums import SearchType
-from sentence_transformers import SentenceTransformer
 
 from app.database.session import SessionLocal
 from app.services.analytics.search_tracking_service import (SearchTrackingService)
 
 
-
 class TextSearchService:
   def __init__(self):
-
-    self.model = SentenceTransformer("all-MiniLM-l6-v2")
+    print("Loading Text Search Service...", flush=True)
+    self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-l6-v2")
+    self.model = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-l6-v2")
+    self.model.eval()
 
     self.index = faiss.read_index("faiss_indexes/text_index.faiss")
-
     self.product_ids = np.load("embeddings/text/product_ids.npy")
 
+  def _mean_pooling(self, model_output, attention_mask):
+    token_embeddings = model_output[0]
+    input_mask_expanded = attention_mask.unsqueeze(-1).expand(token_embeddings.size()).float()
+    return torch.sum(token_embeddings * input_mask_expanded, 1) / torch.clamp(input_mask_expanded.sum(1), min=1e-9)
+
   def search(self, query: str, top_k: int = 10):
-    query_embedding = self.model.encode([query])
+    encoded_input = self.tokenizer([query], padding=True, truncation=True, return_tensors='pt')
+    with torch.no_grad():
+      model_output = self.model(**encoded_input)
+      query_embedding = self._mean_pooling(model_output, encoded_input['attention_mask'])
+      query_embedding = F.normalize(query_embedding, p=2, dim=1)
+      query_embedding = query_embedding.cpu().numpy()
 
     query_embedding = query_embedding.astype("float32")
 
