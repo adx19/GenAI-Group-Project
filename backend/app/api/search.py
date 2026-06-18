@@ -38,11 +38,13 @@ def get_image_service():
     global image_service
 
     if image_service is None:
-        print("Loading Image Search Service...")
+        print("[image_service] Loading Image Search Service (first request)...")
 
         from app.services.search.image_search_service import ImageSearchService
 
         image_service = ImageSearchService()
+
+        print("[image_service] Image Search Service ready.")
 
     return image_service
 
