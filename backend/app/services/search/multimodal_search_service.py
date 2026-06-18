@@ -28,12 +28,21 @@ class MultimodalSearchService:
         # and to ensure singletons are already initialised before we call them.
         from app.api.search import get_text_service, get_image_service
 
-        text_results = get_text_service().search(
+        text_svc = get_text_service()
+        image_svc = get_image_service()
+
+        print(
+            f"[MultimodalSearchService] search() using "
+            f"text_svc id={id(text_svc)} image_svc id={id(image_svc)}",
+            flush=True,
+        )
+
+        text_results = text_svc.search(
             text_query,
             top_k=top_k
         )
 
-        image_results = get_image_service().search(
+        image_results = image_svc.search(
             image_path,
             top_k=top_k
         )
