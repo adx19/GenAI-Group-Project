@@ -25,9 +25,13 @@ faiss-cpu==1.14.2
 # The GPU build (default) is ~800 MB installed; CPU-only is ~200 MB.
 torch==2.2.2+cpu
 
-# transformers: used by CLIPModel + CLIPProcessor for image search.
-# sentence-transformers has been removed — it adds ~100 MB overhead
-# and was not the model used to build the FAISS index.
+# torchvision: provides EfficientNet-B0 used by ImageSearchService.
+# Version 0.17.x is the correct pairing for torch 2.2.x.
+# CPU-only build pulled from the same PyTorch index above.
+torchvision==0.17.2+cpu
+
+# transformers: used by TextSearchService (all-MiniLM-l6-v2).
+# CLIP has been removed — transformers is kept ONLY for the text model.
 transformers==4.40.0
 
 google-generativeai==0.8.6

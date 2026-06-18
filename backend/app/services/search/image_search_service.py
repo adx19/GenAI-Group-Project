@@ -1,4 +1,4 @@
-import gc
+import datetime
 import os
 import sys
 import traceback
@@ -6,9 +6,8 @@ import traceback
 import faiss
 import numpy as np
 import torch
-
 from PIL import Image
-from transformers import CLIPModel, CLIPProcessor
+from torchvision import models
 
 from app.services.analytics.search_tracking_service import SearchTrackingService
 from app.models.enums import SearchType
@@ -16,93 +15,71 @@ from app.database.session import SessionLocal
 from app.models.product import Product
 
 # ---------------------------------------------------------------------------
-# Model name - must match what was used in generate_image_embeddings.py
-# FAISS index was built from CLIPModel("openai/clip-vit-base-patch32")
-# embeddings. Do NOT change this without rebuilding the FAISS index.
+# EfficientNet-B0 configuration
+#
+# WHY EfficientNet-B0 (replaced CLIP ViT-B/32):
+#   CLIP ViT-B/32: 151 M params, float32 → ~576 MB RSS
+#   EfficientNet-B0: 5.3 M params, float32 → ~21 MB RSS
+#   Saving: ~555 MB — brings Railway RSS from ~838 MB to ~283 MB
+#
+# The classifier head is removed so the model outputs (batch, 1280) embeddings.
+# The preprocessing pipeline uses weights.transforms() — the same pipeline
+# that generate_image_embeddings.py used to build the FAISS index.
+# DO NOT change the model without regenerating embeddings and the FAISS index.
 # ---------------------------------------------------------------------------
-_CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
+_MODEL_NAME = "efficientnet_b0"
+_EMBED_DIM = 1280   # EfficientNet-B0 avgpool output, after stripping classifier
 
 
 class ImageSearchService:
 
     def __init__(self):
-        print(f"[ImageSearchService] CREATED id={id(self)}", flush=True)
-        print("[ImageSearchService] STEP 0 - Initializing...", flush=True)
-        print(f"Torch version: {torch.__version__}")
-        print(f"CUDA available: {torch.cuda.is_available()}")
-        print(f"[ImageSearchService] Python     : {sys.version}", flush=True)
-        print(f"[ImageSearchService] Working dir: {os.getcwd()}", flush=True)
-        print(f"[ImageSearchService] Torch      : {torch.__version__}", flush=True)
-
-        # ------------------------------------------------------------------ #
-        # STEP 1 - Load CLIPProcessor (lightweight - just tokenizer/config)  #
-        # ------------------------------------------------------------------ #
+        pid = os.getpid()
+        ts = datetime.datetime.utcnow().isoformat()
         print(
-            f"[ImageSearchService] STEP 1a - Loading CLIPProcessor "
-            f"from '{_CLIP_MODEL_NAME}'...",
+            f"[ImageSearchService] CREATED pid={pid} id={id(self)} time={ts}",
             flush=True,
         )
-
-        try:
-            self.processor = CLIPProcessor.from_pretrained(_CLIP_MODEL_NAME)
-        except Exception:
-            print(
-                "[ImageSearchService] STEP 1a - FAILED loading CLIPProcessor:\n"
-                + traceback.format_exc(),
-                flush=True,
-            )
-            raise RuntimeError(
-                "ImageSearchService: CLIPProcessor.from_pretrained() failed. "
-                "Check Railway logs for full traceback. "
-                "Ensure internet access or pre-cached model files."
-            )
-
-        print("[ImageSearchService] STEP 1a - CLIPProcessor loaded.", flush=True)
+        print(f"[ImageSearchService] Torch version : {torch.__version__}", flush=True)
+        print(f"[ImageSearchService] CUDA available: {torch.cuda.is_available()}", flush=True)
+        print(f"[ImageSearchService] Python        : {sys.version}", flush=True)
+        print(f"[ImageSearchService] Working dir   : {os.getcwd()}", flush=True)
 
         # ------------------------------------------------------------------ #
-        # STEP 1b - Load CLIPModel in float32                                #
-        #                                                                    #
-        # WHY float32:                                                       #
-        #   PyTorch CPU-only environment does not support LayerNorm for      #
-        #   float16 precision ("LayerNormKernelImpl" not implemented for Half)#
-        #                                                                    #
-        # WHY NOT SentenceTransformer:                                       #
-        #   The FAISS index was built with CLIPModel.get_image_features(),   #
-        #   not SentenceTransformer.encode(). Using the wrong loader produces#
-        #   mismatched query vectors and wrong search results.               #
-        #   SentenceTransformer also adds ~100 MB of wrapper overhead.       #
+        # STEP 1 — Load EfficientNet-B0                                      #
         # ------------------------------------------------------------------ #
         print(
-            f"[ImageSearchService] STEP 1b - Loading CLIPModel (float32) "
-            f"from '{_CLIP_MODEL_NAME}'...",
+            f"[ImageSearchService] STEP 1 - Loading EfficientNet-B0 (ImageNet weights)...",
             flush=True,
         )
-
         try:
-            self.model = CLIPModel.from_pretrained(
-                _CLIP_MODEL_NAME,
-                torch_dtype=torch.float32,
-            )
+            weights = models.EfficientNet_B0_Weights.DEFAULT
+            self.model = models.efficientnet_b0(weights=weights)
+            # Remove Linear(1280 → 1000) classifier → model now outputs (batch, 1280)
+            self.model.classifier = torch.nn.Identity()
             self.model.eval()
-            print("[ImageSearchService] STEP 1b COMPLETE - CLIPModel loaded", flush=True)
+            # Official ImageNet preprocessing: Resize(256)→CenterCrop(224)→Normalize
+            # Must be identical to the pipeline used in generate_image_embeddings.py
+            self.preprocess = weights.transforms()
+            print(
+                f"[ImageSearchService] STEP 1 COMPLETE - EfficientNet-B0 ready. "
+                f"embed_dim={_EMBED_DIM}",
+                flush=True,
+            )
         except Exception:
             print(
-                "[ImageSearchService] STEP 1b - FAILED loading CLIPModel:\n"
+                "[ImageSearchService] STEP 1 FAILED loading EfficientNet-B0:\n"
                 + traceback.format_exc(),
                 flush=True,
             )
             raise RuntimeError(
-                "ImageSearchService: CLIPModel.from_pretrained() failed. "
-                "Check Railway logs for full traceback."
+                "ImageSearchService: EfficientNet-B0 failed to load. "
+                "Ensure torchvision is installed and internet access is available "
+                "for the first weights download."
             )
 
-        print(
-            f"[ImageSearchService] STEP 1b - CLIPModel loaded in eval/float32 mode.",
-            flush=True,
-        )
-
         # ------------------------------------------------------------------ #
-        # STEP 2 - FAISS index                                               #
+        # STEP 2 — FAISS index                                               #
         # ------------------------------------------------------------------ #
         faiss_path = "faiss_indexes/image_index.faiss"
         print(
@@ -110,12 +87,11 @@ class ImageSearchService:
             f"{os.path.abspath(faiss_path)} (exists={os.path.isfile(faiss_path)})",
             flush=True,
         )
-
         try:
             self.index = faiss.read_index(faiss_path)
         except Exception:
             print(
-                f"[ImageSearchService] STEP 2 - FAILED loading FAISS index:\n"
+                "[ImageSearchService] STEP 2 FAILED loading FAISS index:\n"
                 + traceback.format_exc(),
                 flush=True,
             )
@@ -124,7 +100,6 @@ class ImageSearchService:
                 f"File exists: {os.path.isfile(faiss_path)}. "
                 f"Ensure faiss_indexes/image_index.faiss is committed and deployed."
             )
-
         print(
             f"[ImageSearchService] STEP 2 - FAISS index loaded. "
             f"ntotal={self.index.ntotal}, dim={self.index.d}",
@@ -132,7 +107,7 @@ class ImageSearchService:
         )
 
         # ------------------------------------------------------------------ #
-        # STEP 3 - Product ID mapping                                        #
+        # STEP 3 — Product ID mapping                                        #
         # ------------------------------------------------------------------ #
         npy_path = "embeddings/image/image_product_ids.npy"
         print(
@@ -140,12 +115,11 @@ class ImageSearchService:
             f"{os.path.abspath(npy_path)} (exists={os.path.isfile(npy_path)})",
             flush=True,
         )
-
         try:
             self.product_ids = np.load(npy_path, allow_pickle=False)
         except Exception:
             print(
-                f"[ImageSearchService] STEP 3 - FAILED loading product IDs:\n"
+                "[ImageSearchService] STEP 3 FAILED loading product IDs:\n"
                 + traceback.format_exc(),
                 flush=True,
             )
@@ -153,7 +127,6 @@ class ImageSearchService:
                 f"ImageSearchService: np.load('{npy_path}') failed. "
                 f"File exists: {os.path.isfile(npy_path)}."
             )
-
         print(
             f"[ImageSearchService] STEP 3 - Product IDs loaded. "
             f"count={len(self.product_ids)}",
@@ -161,11 +134,21 @@ class ImageSearchService:
         )
 
         # ------------------------------------------------------------------ #
-        # STEP 4 - Alignment check                                           #
+        # STEP 4 — Dimension alignment check                                 #
         # ------------------------------------------------------------------ #
+        if self.index.d != _EMBED_DIM:
+            msg = (
+                f"[ImageSearchService] STEP 4 DIM MISMATCH: "
+                f"FAISS index dim={self.index.d} but model output dim={_EMBED_DIM}. "
+                f"Regenerate embeddings with scripts/generate_image_embeddings.py "
+                f"then rebuild the index with scripts/build_image_faiss.py."
+            )
+            print(msg, flush=True)
+            raise ValueError(msg)
+
         if self.index.ntotal != len(self.product_ids):
             msg = (
-                f"[ImageSearchService] STEP 4 MISMATCH: "
+                f"[ImageSearchService] STEP 4 COUNT MISMATCH: "
                 f"FAISS has {self.index.ntotal} vectors but "
                 f"product_ids has {len(self.product_ids)} entries."
             )
@@ -173,7 +156,7 @@ class ImageSearchService:
             raise ValueError(msg)
 
         print(
-            "[ImageSearchService] STEP 4 - ImageSearchService ready. "
+            f"[ImageSearchService] STEP 4 - Alignment OK. "
             f"Serving {self.index.ntotal} products at dim={self.index.d}.",
             flush=True,
         )
@@ -181,50 +164,27 @@ class ImageSearchService:
     # ---------------------------------------------------------------------- #
     # search()                                                               #
     # ---------------------------------------------------------------------- #
-    def search(self, image_path, top_k=5):
+    def search(self, image_path: str, top_k: int = 5):
         print(f"[ImageSearchService] Image received: {image_path}", flush=True)
 
-        # ------------------------------------------------------------------ #
-        # 1. Load image and run CLIP preprocessing                           #
-        # ------------------------------------------------------------------ #
+        # 1. Load image and encode with EfficientNet-B0
         try:
-            with Image.open(image_path).convert("RGB") as image:
-                # CLIPProcessor handles resizing, normalisation, and tensor
-                # conversion - identical to what generate_image_embeddings.py did.
-                inputs = self.processor(
-                    images=image,
-                    return_tensors="pt",
-                )
+            with Image.open(image_path).convert("RGB") as img:
+                # preprocess: Resize(256) → CenterCrop(224) → ToTensor → Normalize
+                tensor = self.preprocess(img).unsqueeze(0)   # (1, 3, 224, 224)
 
-                # ---------------------------------------------------------- #
-                # 2. Extract image features - no_grad() prevents autograd    #
-                #    graph accumulation (memory leak) across requests.       #
-                #                                                            #
-                # get_image_features() returns a plain tensor of shape       #
-                # (1, 512) - the projected, unnormalised image embedding.    #
-                # ---------------------------------------------------------- #
-                with torch.no_grad():
-                    image_features = self.model.get_image_features(**inputs)
-
-            # PIL image is now released (exited context manager)
-
-            query_embedding = (
-                image_features
-                .cpu()
-                .numpy()
-                .flatten()
-            )
+            with torch.no_grad():
+                embedding = self.model(tensor).cpu().numpy().flatten()  # (1280,)
 
         except Exception:
             print(
-                f"[ImageSearchService] FAILED during image encode:\n"
+                "[ImageSearchService] FAILED during image encode:\n"
                 + traceback.format_exc(),
                 flush=True,
             )
             raise
 
-        # Guarantee shape (1, dim) for FAISS
-        query_embedding = query_embedding.reshape(1, -1).astype("float32")
+        query_embedding = embedding.reshape(1, -1).astype("float32")
 
         print(
             f"[ImageSearchService] Embedding shape: {query_embedding.shape} "
@@ -234,65 +194,44 @@ class ImageSearchService:
 
         if query_embedding.shape[1] != self.index.d:
             raise ValueError(
-                f"[ImageSearchService] Embedding dim {query_embedding.shape[1]} "
-                f"!= FAISS index dim {self.index.d}. "
-                f"Model or preprocessing mismatch."
+                f"[ImageSearchService] Runtime dim mismatch: "
+                f"query={query_embedding.shape[1]}, index={self.index.d}. "
+                f"Regenerate embeddings and FAISS index."
             )
 
-        # ------------------------------------------------------------------ #
-        # 3. FAISS search                                                    #
-        # ------------------------------------------------------------------ #
+        # 2. FAISS search
         distances, indices = self.index.search(query_embedding, top_k)
-
         print(
             f"[ImageSearchService] FAISS search done. "
             f"indices={indices[0].tolist()}",
             flush=True,
         )
-
         del query_embedding
 
-        # ------------------------------------------------------------------ #
-        # 4. Resolve product IDs -> DB                                       #
-        # ------------------------------------------------------------------ #
+        # 3. Resolve product IDs → DB
         db = SessionLocal()
-
         try:
             results = []
-
             for idx, distance in zip(indices[0], distances[0]):
-                # FAISS returns -1 for padding when results < top_k
                 if idx < 0 or idx >= len(self.product_ids):
                     continue
-
                 product_id = int(self.product_ids[idx])
-
-                product = (
-                    db.query(Product)
-                    .filter(Product.id == product_id)
-                    .first()
-                )
-
+                product = db.query(Product).filter(Product.id == product_id).first()
                 if product:
-                    results.append(
-                        {
-                            "product": product,
-                            "score": 1 / (1 + float(distance)),
-                        }
-                    )
+                    results.append({
+                        "product": product,
+                        "score": 1 / (1 + float(distance)),
+                    })
 
             print(f"[ImageSearchService] Results returned: {len(results)}", flush=True)
 
-            # -------------------------------------------------------------- #
-            # 5. Analytics                                                   #
-            # -------------------------------------------------------------- #
+            # 4. Analytics
             tracker = SearchTrackingService()
             tracker.log_search(
                 query=image_path,
                 search_type=SearchType.IMAGE,
                 results_count=len(results),
             )
-
             return results
 
         finally:
