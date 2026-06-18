@@ -28,6 +28,8 @@ class ImageSearchService:
     def __init__(self):
 
         print("[ImageSearchService] STEP 0 - Initializing...", flush=True)
+        print(f"Torch version: {torch.__version__}")
+        print(f"CUDA available: {torch.cuda.is_available()}")
         print(f"[ImageSearchService] Python     : {sys.version}", flush=True)
         print(f"[ImageSearchService] Working dir: {os.getcwd()}", flush=True)
         print(f"[ImageSearchService] Torch      : {torch.__version__}", flush=True)
