@@ -10,9 +10,6 @@ from pydantic import BaseModel
 from app.database.session import SessionLocal
 from app.models.product_attribute import ProductAttribute
 
-from app.services.search.text_search_service import TextSearchService
-from app.services.search.image_search_service import ImageSearchService
-from app.services.search.multimodal_search_service import MultimodalSearchService
 
 router = APIRouter(
     prefix="/search",
@@ -29,6 +26,9 @@ def get_text_service():
 
     if text_service is None:
         print("Loading Text Search Service...")
+
+        from app.services.search.text_search_service import TextSearchService
+
         text_service = TextSearchService()
 
     return text_service
@@ -39,6 +39,9 @@ def get_image_service():
 
     if image_service is None:
         print("Loading Image Search Service...")
+
+        from app.services.search.image_search_service import ImageSearchService
+
         image_service = ImageSearchService()
 
     return image_service
@@ -49,6 +52,9 @@ def get_multimodal_service():
 
     if multimodal_service is None:
         print("Loading Multimodal Search Service...")
+
+        from app.services.search.multimodal_search_service import MultimodalSearchService
+
         multimodal_service = MultimodalSearchService()
 
     return multimodal_service
