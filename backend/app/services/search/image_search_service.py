@@ -1,4 +1,5 @@
 from networkx.generators import spectral_graph_forge
+from networkx.generators import spectral_graph_forge
 import faiss
 import numpy as np
 import torch
@@ -26,21 +27,8 @@ class ImageSearchService:
 
         print("STEP 1 - Before CLIPModel")
 
-        self.model = (
-            CLIPModel
-            .from_pretrained(
-                "openai/clip-vit-base-patch32",
-            )
-            .to(self.device)
-        )
-
-        print("STEP 2 - After CLIPModel")
-
-        self.processor = (
-            CLIPProcessor
-            .from_pretrained(
-                "openai/clip-vit-base-patch32",
-            )
+        self.model = SentenceTransformer(
+            "clip-ViT-B-32"
         )
 
         print("STEP 3 - After CLIPProcessor")
@@ -63,30 +51,16 @@ class ImageSearchService:
         top_k=5
     ):
 
-        image = (
-            Image.open(image_path)
-            .convert("RGB")
-        )
+            image = Image.open(image_path).convert("RGB")
 
-        inputs = self.processor(
-            images=image,
-            return_tensors="pt"
-        )
+            query_embedding = self.model.encode(
+                image,
+                convert_to_numpy=True
+            ).astype("float32")
 
-        inputs = {
-            k: v.to(self.device)
-            for k, v in inputs.items()
-        }
-
-        with torch.no_grad():
-
-            outputs = self.model.get_image_features(**inputs)
-
-            query_embedding = (
-                outputs
-                .cpu()
-                .numpy()
-                .astype("float32")
+            query_embedding = query_embedding.reshape(
+                1,
+                -1
             )
             
             distances, indices = (
