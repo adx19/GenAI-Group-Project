@@ -16,9 +16,9 @@ from app.database.session import SessionLocal
 from app.models.product import Product
 
 # ---------------------------------------------------------------------------
-# Model name — must match what was used in generate_image_embeddings.py
+# Model name - must match what was used in generate_image_embeddings.py
 # FAISS index was built from CLIPModel("openai/clip-vit-base-patch32")
-# embeddings.  Do NOT change this without rebuilding the FAISS index.
+# embeddings. Do NOT change this without rebuilding the FAISS index.
 # ---------------------------------------------------------------------------
 _CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 
@@ -26,7 +26,7 @@ _CLIP_MODEL_NAME = "openai/clip-vit-base-patch32"
 class ImageSearchService:
 
     def __init__(self):
-
+        print(f"[ImageSearchService] CREATED id={id(self)}", flush=True)
         print("[ImageSearchService] STEP 0 - Initializing...", flush=True)
         print(f"Torch version: {torch.__version__}")
         print(f"CUDA available: {torch.cuda.is_available()}")
@@ -35,7 +35,7 @@ class ImageSearchService:
         print(f"[ImageSearchService] Torch      : {torch.__version__}", flush=True)
 
         # ------------------------------------------------------------------ #
-        # STEP 1 — Load CLIPProcessor (lightweight — just tokenizer/config)   #
+        # STEP 1 - Load CLIPProcessor (lightweight - just tokenizer/config)  #
         # ------------------------------------------------------------------ #
         print(
             f"[ImageSearchService] STEP 1a - Loading CLIPProcessor "
@@ -60,12 +60,12 @@ class ImageSearchService:
         print("[ImageSearchService] STEP 1a - CLIPProcessor loaded.", flush=True)
 
         # ------------------------------------------------------------------ #
-        # STEP 1b — Load CLIPModel in float16                                #
+        # STEP 1b - Load CLIPModel in float16                                #
         #                                                                    #
         # WHY float16:                                                       #
         #   CLIPModel in float32 = ~600 MB RAM                               #
         #   CLIPModel in float16 = ~300 MB RAM                               #
-        #   Railway Starter plan has 512 MB total — float32 OOM-kills.       #
+        #   Railway Starter plan has 512 MB total - float32 OOM-kills.       #
         #                                                                    #
         # WHY NOT SentenceTransformer:                                       #
         #   The FAISS index was built with CLIPModel.get_image_features(),   #
@@ -85,6 +85,7 @@ class ImageSearchService:
                 torch_dtype=torch.float16,
             )
             self.model.eval()
+            print("[ImageSearchService] STEP 1b COMPLETE - CLIPModel loaded", flush=True)
         except Exception:
             print(
                 "[ImageSearchService] STEP 1b - FAILED loading CLIPModel:\n"
@@ -102,7 +103,7 @@ class ImageSearchService:
         )
 
         # ------------------------------------------------------------------ #
-        # STEP 2 — FAISS index                                                 #
+        # STEP 2 - FAISS index                                               #
         # ------------------------------------------------------------------ #
         faiss_path = "faiss_indexes/image_index.faiss"
         print(
@@ -132,7 +133,7 @@ class ImageSearchService:
         )
 
         # ------------------------------------------------------------------ #
-        # STEP 3 — Product ID mapping                                          #
+        # STEP 3 - Product ID mapping                                        #
         # ------------------------------------------------------------------ #
         npy_path = "embeddings/image/image_product_ids.npy"
         print(
@@ -161,7 +162,7 @@ class ImageSearchService:
         )
 
         # ------------------------------------------------------------------ #
-        # STEP 4 — Alignment check                                             #
+        # STEP 4 - Alignment check                                           #
         # ------------------------------------------------------------------ #
         if self.index.ntotal != len(self.product_ids):
             msg = (
@@ -179,34 +180,32 @@ class ImageSearchService:
         )
 
     # ---------------------------------------------------------------------- #
-    # search()                                                                 #
+    # search()                                                               #
     # ---------------------------------------------------------------------- #
     def search(self, image_path, top_k=5):
-
         print(f"[ImageSearchService] Image received: {image_path}", flush=True)
 
         # ------------------------------------------------------------------ #
-        # 1. Load image and run CLIP preprocessing                             #
+        # 1. Load image and run CLIP preprocessing                           #
         # ------------------------------------------------------------------ #
         try:
             with Image.open(image_path).convert("RGB") as image:
-
                 # CLIPProcessor handles resizing, normalisation, and tensor
-                # conversion — identical to what generate_image_embeddings.py did.
+                # conversion - identical to what generate_image_embeddings.py did.
                 inputs = self.processor(
                     images=image,
                     return_tensors="pt",
                 )
 
                 # ---------------------------------------------------------- #
-                # 2. Extract image features — no_grad() prevents autograd     #
-                #    graph accumulation (memory leak) across requests.         #
-                #                                                              #
-                # get_image_features() returns a plain tensor of shape        #
-                # (1, 512) — the projected, unnormalised image embedding.     #
-                #                                                              #
-                # Convert inputs to float16 to match the model weights.       #
-                # FAISS index was built from float32 — cast back after.       #
+                # 2. Extract image features - no_grad() prevents autograd    #
+                #    graph accumulation (memory leak) across requests.       #
+                #                                                            #
+                # get_image_features() returns a plain tensor of shape       #
+                # (1, 512) - the projected, unnormalised image embedding.    #
+                #                                                            #
+                # Convert inputs to float16 to match the model weights.      #
+                # FAISS index was built from float32 - cast back after.      #
                 # ---------------------------------------------------------- #
                 with torch.no_grad():
                     inputs_fp16 = {
@@ -250,7 +249,7 @@ class ImageSearchService:
             )
 
         # ------------------------------------------------------------------ #
-        # 3. FAISS search                                                      #
+        # 3. FAISS search                                                    #
         # ------------------------------------------------------------------ #
         distances, indices = self.index.search(query_embedding, top_k)
 
@@ -263,7 +262,7 @@ class ImageSearchService:
         del query_embedding
 
         # ------------------------------------------------------------------ #
-        # 4. Resolve product IDs → DB                                          #
+        # 4. Resolve product IDs -> DB                                       #
         # ------------------------------------------------------------------ #
         db = SessionLocal()
 
@@ -271,7 +270,6 @@ class ImageSearchService:
             results = []
 
             for idx, distance in zip(indices[0], distances[0]):
-
                 # FAISS returns -1 for padding when results < top_k
                 if idx < 0 or idx >= len(self.product_ids):
                     continue
@@ -295,7 +293,7 @@ class ImageSearchService:
             print(f"[ImageSearchService] Results returned: {len(results)}", flush=True)
 
             # -------------------------------------------------------------- #
-            # 5. Analytics                                                      #
+            # 5. Analytics                                                   #
             # -------------------------------------------------------------- #
             tracker = SearchTrackingService()
             tracker.log_search(

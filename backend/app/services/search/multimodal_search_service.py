@@ -15,6 +15,9 @@ class MultimodalSearchService:
     entire process — preventing duplicate ~600 MB CLIP and ~90 MB MiniLM loads.
     """
 
+    def __init__(self):
+        print(f"[MultimodalSearchService] CREATED id={id(self)}", flush=True)
+
     def search(
         self,
         text_query,

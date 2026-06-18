@@ -33,6 +33,8 @@ def get_text_service():
         from app.services.search.text_search_service import TextSearchService
 
         text_service = TextSearchService()
+    else:
+        print(f"[text_service] REUSING id={id(text_service)}", flush=True)
 
     return text_service
 
@@ -55,6 +57,8 @@ def get_image_service():
                 flush=True,
             )
             raise
+    else:
+        print(f"[image_service] REUSING id={id(image_service)}", flush=True)
 
     return image_service
 
@@ -68,6 +72,8 @@ def get_multimodal_service():
         from app.services.search.multimodal_search_service import MultimodalSearchService
 
         multimodal_service = MultimodalSearchService()
+    else:
+        print(f"[multimodal_service] REUSING id={id(multimodal_service)}", flush=True)
 
     return multimodal_service
 

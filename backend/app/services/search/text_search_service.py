@@ -14,6 +14,7 @@ from app.services.analytics.search_tracking_service import (SearchTrackingServic
 
 class TextSearchService:
   def __init__(self):
+    print(f"[TextSearchService] CREATED id={id(self)}", flush=True)
     print("Loading Text Search Service...", flush=True)
     self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-l6-v2")
     self.model = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-l6-v2")
