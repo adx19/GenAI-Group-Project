@@ -68,26 +68,21 @@ class ImageSearchService:
 
         with torch.no_grad():
 
-            outputs = (
-                self.model
-                .get_image_features(
-                    **inputs
-                )
-            )
+            outputs = self.model.get_image_features(**inputs)
 
             query_embedding = (
-                outputs.pooler_output
+                outputs
                 .cpu()
                 .numpy()
                 .astype("float32")
             )
-
-        distances, indices = (
-            self.index.search(
-                query_embedding,
-                top_k
+            
+            distances, indices = (
+                self.index.search(
+                    query_embedding,
+                    top_k
+                )
             )
-        )
 
         db = SessionLocal()
 
