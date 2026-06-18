@@ -16,34 +16,46 @@ class ImageSearchService:
 
     def __init__(self):
 
+        print("STEP 0 - Starting ImageSearchService")
+
         self.device = (
             "cuda"
             if torch.cuda.is_available()
             else "cpu"
         )
 
+        print("STEP 1 - Before CLIPModel")
+
         self.model = (
             CLIPModel
             .from_pretrained(
                 "openai/clip-vit-base-patch32",
-            )   
+            )
             .to(self.device)
         )
+
+        print("STEP 2 - After CLIPModel")
 
         self.processor = (
             CLIPProcessor
             .from_pretrained(
                 "openai/clip-vit-base-patch32",
-            )       
+            )
         )
+
+        print("STEP 3 - After CLIPProcessor")
 
         self.index = faiss.read_index(
             "faiss_indexes/image_index.faiss"
         )
 
+        print("STEP 4 - After FAISS")
+
         self.product_ids = np.load(
             "embeddings/image/image_product_ids.npy"
         )
+
+        print("STEP 5 - ImageSearchService Ready")
 
     def search(
         self,
