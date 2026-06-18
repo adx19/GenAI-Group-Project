@@ -60,12 +60,11 @@ class ImageSearchService:
         print("[ImageSearchService] STEP 1a - CLIPProcessor loaded.", flush=True)
 
         # ------------------------------------------------------------------ #
-        # STEP 1b - Load CLIPModel in float16                                #
+        # STEP 1b - Load CLIPModel in float32                                #
         #                                                                    #
-        # WHY float16:                                                       #
-        #   CLIPModel in float32 = ~600 MB RAM                               #
-        #   CLIPModel in float16 = ~300 MB RAM                               #
-        #   Railway Starter plan has 512 MB total - float32 OOM-kills.       #
+        # WHY float32:                                                       #
+        #   PyTorch CPU-only environment does not support LayerNorm for      #
+        #   float16 precision ("LayerNormKernelImpl" not implemented for Half)#
         #                                                                    #
         # WHY NOT SentenceTransformer:                                       #
         #   The FAISS index was built with CLIPModel.get_image_features(),   #
@@ -74,7 +73,7 @@ class ImageSearchService:
         #   SentenceTransformer also adds ~100 MB of wrapper overhead.       #
         # ------------------------------------------------------------------ #
         print(
-            f"[ImageSearchService] STEP 1b - Loading CLIPModel (float16) "
+            f"[ImageSearchService] STEP 1b - Loading CLIPModel (float32) "
             f"from '{_CLIP_MODEL_NAME}'...",
             flush=True,
         )
@@ -82,7 +81,7 @@ class ImageSearchService:
         try:
             self.model = CLIPModel.from_pretrained(
                 _CLIP_MODEL_NAME,
-                torch_dtype=torch.float16,
+                torch_dtype=torch.float32,
             )
             self.model.eval()
             print("[ImageSearchService] STEP 1b COMPLETE - CLIPModel loaded", flush=True)
@@ -98,7 +97,7 @@ class ImageSearchService:
             )
 
         print(
-            f"[ImageSearchService] STEP 1b - CLIPModel loaded in eval/float16 mode.",
+            f"[ImageSearchService] STEP 1b - CLIPModel loaded in eval/float32 mode.",
             flush=True,
         )
 
@@ -203,23 +202,15 @@ class ImageSearchService:
                 #                                                            #
                 # get_image_features() returns a plain tensor of shape       #
                 # (1, 512) - the projected, unnormalised image embedding.    #
-                #                                                            #
-                # Convert inputs to float16 to match the model weights.      #
-                # FAISS index was built from float32 - cast back after.      #
                 # ---------------------------------------------------------- #
                 with torch.no_grad():
-                    inputs_fp16 = {
-                        k: v.to(torch.float16) if v.dtype == torch.float32 else v
-                        for k, v in inputs.items()
-                    }
-                    image_features = self.model.get_image_features(**inputs_fp16)
+                    image_features = self.model.get_image_features(**inputs)
 
             # PIL image is now released (exited context manager)
 
             query_embedding = (
                 image_features
                 .cpu()
-                .to(torch.float32)   # FAISS requires float32
                 .numpy()
                 .flatten()
             )
