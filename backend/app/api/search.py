@@ -1,9 +1,11 @@
 from pathlib import Path
 import shutil
+import uuid
 
 from fastapi import APIRouter
 from fastapi import File
 from fastapi import Form
+from fastapi import HTTPException
 from fastapi import UploadFile
 from pydantic import BaseModel
 
@@ -142,8 +144,10 @@ def text_search(request: TextSearchRequest):
 async def image_search(
     image: UploadFile = File(...)
 ):
-
-    file_path = TEMP_UPLOAD_DIR / image.filename
+    # Use a uuid-based name so a None/missing filename never crashes
+    # before the finally-block can clean up.
+    suffix = Path(image.filename).suffix if image.filename else ".jpg"
+    file_path = TEMP_UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(
@@ -168,8 +172,10 @@ async def image_search(
             ]
         }
 
-    finally:
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    finally:
         if file_path.exists():
             file_path.unlink()
 
@@ -179,8 +185,8 @@ async def multimodal_search(
     image: UploadFile = File(...),
     query: str = Form(...)
 ):
-
-    file_path = TEMP_UPLOAD_DIR / image.filename
+    suffix = Path(image.filename).suffix if image.filename else ".jpg"
+    file_path = TEMP_UPLOAD_DIR / f"{uuid.uuid4().hex}{suffix}"
 
     with open(file_path, "wb") as buffer:
         shutil.copyfileobj(
@@ -206,7 +212,9 @@ async def multimodal_search(
             ]
         }
 
-    finally:
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
 
+    finally:
         if file_path.exists():
             file_path.unlink()

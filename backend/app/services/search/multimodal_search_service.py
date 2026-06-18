@@ -1,26 +1,19 @@
-from app.services.search.text_search_service import(
-  TextSearchService
-)
 from app.services.analytics.search_tracking_service import (
     SearchTrackingService
 )
 
 from app.models.enums import SearchType
-from app.services.search.image_search_service import(
-  ImageSearchService
-)
+
 
 class MultimodalSearchService:
+    """
+    Combines text + image search results via score fusion.
 
-    def __init__(self):
-
-        self.text_service = (
-            TextSearchService()
-        )
-
-        self.image_service = (
-            ImageSearchService()
-        )
+    IMPORTANT: Does NOT own TextSearchService or ImageSearchService instances.
+    It calls the module-level singletons in app.api.search via getter functions
+    to guarantee each model/FAISS index is loaded exactly ONCE across the
+    entire process — preventing duplicate ~600 MB CLIP and ~90 MB MiniLM loads.
+    """
 
     def search(
         self,
@@ -28,61 +21,40 @@ class MultimodalSearchService:
         image_path,
         top_k=10
     ):
+        # Import getters here (not at module level) to avoid circular imports
+        # and to ensure singletons are already initialised before we call them.
+        from app.api.search import get_text_service, get_image_service
 
-        text_results = (
-            self.text_service.search(
-                text_query,
-                top_k=top_k
-            )
+        text_results = get_text_service().search(
+            text_query,
+            top_k=top_k
         )
 
-        image_results = (
-            self.image_service.search(
-                image_path,
-                top_k=top_k
-            )
+        image_results = get_image_service().search(
+            image_path,
+            top_k=top_k
         )
 
         combined_scores = {}
 
         for result in text_results:
-
             product = result["product"]
-
             score = result["score"]
-
-            combined_scores[
-                product.id
-            ] = {
+            combined_scores[product.id] = {
                 "product": product,
-                "score": (
-                    0.5 * score
-                )
+                "score": 0.5 * score,
             }
 
         for result in image_results:
-
             product = result["product"]
-
             score = result["score"]
 
             if product.id in combined_scores:
-
-                combined_scores[
-                    product.id
-                ]["score"] += (
-                    0.5 * score
-                )
-
+                combined_scores[product.id]["score"] += 0.5 * score
             else:
-
-                combined_scores[
-                    product.id
-                ] = {
+                combined_scores[product.id] = {
                     "product": product,
-                    "score": (
-                        0.5 * score
-                    )
+                    "score": 0.5 * score,
                 }
 
         final_results = sorted(
@@ -92,10 +64,10 @@ class MultimodalSearchService:
         )
 
         tracker = SearchTrackingService()
-
         tracker.log_search(
             query=text_query,
             search_type=SearchType.MULTIMODAL,
             results_count=len(final_results[:top_k])
         )
+
         return final_results[:top_k]

@@ -1,5 +1,8 @@
+import gc
+
 import faiss
 import numpy as np
+import torch
 
 from PIL import Image
 from sentence_transformers import SentenceTransformer
@@ -23,6 +26,14 @@ class ImageSearchService:
         # ------------------------------------------------------------------ #
         self.model = SentenceTransformer("clip-ViT-B-32")
 
+        # Inference-only: disable gradient tracking for the entire model.
+        # This prevents PyTorch from building computation graphs during
+        # encode(), which would silently retain large intermediate tensors
+        # in memory for every request.
+        self.model.eval()
+        for param in self.model.parameters():
+            param.requires_grad_(False)
+
         print("[ImageSearchService] STEP 1 - Model loaded (clip-ViT-B-32 via SentenceTransformer).")
 
         # ------------------------------------------------------------------ #
@@ -41,7 +52,7 @@ class ImageSearchService:
         # ------------------------------------------------------------------ #
         self.product_ids = np.load(
             "embeddings/image/image_product_ids.npy",
-            allow_pickle=False
+            allow_pickle=False,
         )
 
         print(
@@ -68,21 +79,23 @@ class ImageSearchService:
         print(f"[ImageSearchService] Image received: {image_path}")
 
         # ------------------------------------------------------------------ #
-        # 1. Load and preprocess the image                                    #
+        # 1. Load and preprocess the image — use context manager so the       #
+        #    PIL bitmap is released from memory as soon as encoding is done.   #
         # ------------------------------------------------------------------ #
-        image = Image.open(image_path).convert("RGB")
+        with Image.open(image_path).convert("RGB") as image:
 
-        # ------------------------------------------------------------------ #
-        # 2. Encode with SentenceTransformer                                  #
-        #    - normalize_embeddings=True → L2-normalised float32 vectors      #
-        #      which matches how the FAISS index was built during indexing.   #
-        #    - convert_to_numpy=True → returns np.ndarray directly.           #
-        # ------------------------------------------------------------------ #
-        query_embedding = self.model.encode(
-            image,
-            convert_to_numpy=True,
-            normalize_embeddings=True,
-        ).astype("float32")
+            # -------------------------------------------------------------- #
+            # 2. Encode with SentenceTransformer inside torch.no_grad()       #
+            #    - no_grad(): zero gradient graph overhead per request         #
+            #    - normalize_embeddings=True: L2-normalised, matches index     #
+            #    - convert_to_numpy=True: returns np.ndarray, releases tensor  #
+            # -------------------------------------------------------------- #
+            with torch.no_grad():
+                query_embedding = self.model.encode(
+                    image,
+                    convert_to_numpy=True,
+                    normalize_embeddings=True,
+                ).astype("float32")
 
         # Guarantee shape is (1, dim) for FAISS
         if query_embedding.ndim == 1:
@@ -110,6 +123,9 @@ class ImageSearchService:
             f"[ImageSearchService] FAISS search completed. "
             f"Raw indices: {indices[0].tolist()}"
         )
+
+        # Free the embedding array immediately — no longer needed
+        del query_embedding
 
         # ------------------------------------------------------------------ #
         # 4. Resolve product IDs and fetch from DB                            #
@@ -141,15 +157,12 @@ class ImageSearchService:
                         }
                     )
 
-            print(
-                f"[ImageSearchService] Results returned: {len(results)}"
-            )
+            print(f"[ImageSearchService] Results returned: {len(results)}")
 
-            # ---------------------------------------------------------------- #
-            # 5. Analytics tracking                                             #
-            # ---------------------------------------------------------------- #
+            # -------------------------------------------------------------- #
+            # 5. Analytics tracking                                            #
+            # -------------------------------------------------------------- #
             tracker = SearchTrackingService()
-
             tracker.log_search(
                 query=image_path,
                 search_type=SearchType.IMAGE,
