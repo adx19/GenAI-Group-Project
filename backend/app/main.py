@@ -12,7 +12,7 @@ app = FastAPI(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:3000"
+        "https://gen-ai-group-project-git-main-adx19s-projects.vercel.app"
     ],
     allow_credentials=True,
     allow_methods=["*"],
