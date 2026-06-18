@@ -19,7 +19,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(search_router)
+# app.include_router(search_router)
 app.include_router(analytics_router)
 app.include_router(product_router)
 
