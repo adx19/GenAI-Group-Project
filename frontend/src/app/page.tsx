@@ -84,7 +84,16 @@ export default function HomePage() {
               </TabsList>
 
               <TabsContent value="text">
-                <SearchBar onSubmit={(q) => text.mutate(q)} loading={text.isPending} />
+                <SearchBar
+                  onSubmit={(q) => {
+                    image.reset();
+                    multi.reset();
+                    text.reset();
+                    setFilters({});
+                    text.mutate(q);
+                  }}
+                  loading={text.isPending}
+                />
               </TabsContent>
 
               <TabsContent value="image" className="space-y-3">
@@ -94,7 +103,15 @@ export default function HomePage() {
                   size="lg"
                   className="w-full"
                   disabled={!imgFile || image.isPending}
-                  onClick={() => imgFile && image.mutate(imgFile)}
+                  onClick={() => {
+                    if (imgFile) {
+                      text.reset();
+                      multi.reset();
+                      image.reset();
+                      setFilters({});
+                      image.mutate(imgFile);
+                    }
+                  }}
                 >
                   Search by image
                 </Button>
@@ -103,7 +120,13 @@ export default function HomePage() {
               <TabsContent value="multi">
                 <MultimodalSearchForm
                   loading={multi.isPending}
-                  onSubmit={(d) => multi.mutate(d)}
+                  onSubmit={(d) => {
+                    text.reset();
+                    image.reset();
+                    multi.reset();
+                    setFilters({});
+                    multi.mutate(d);
+                  }}
                 />
               </TabsContent>
             </Tabs>
