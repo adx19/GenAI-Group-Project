@@ -177,7 +177,8 @@ async def lifespan(app: FastAPI):
     )
     for route in app.routes:
         methods = getattr(route, "methods", None)
-        print(f"  {methods or 'N/A':30s} {route.path}", flush=True)
+        methods_str = ", ".join(sorted(methods)) if methods else "N/A"
+        print(f"  {methods_str:30s} {route.path}", flush=True)
     print(
         f"[LIFESPAN #{count}] pid={pid} ================================\n",
         flush=True,
@@ -229,4 +230,4 @@ def root():
         "pid": os.getpid(),
         "lifespan_count": _LIFESPAN_COUNT,
         "rss": _rss_mb(),
-    }
+    }
