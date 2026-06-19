@@ -1,7 +1,4 @@
-import datetime
 import os
-import sys
-import traceback
 
 import faiss
 import numpy as np
@@ -34,24 +31,9 @@ _EMBED_DIM = 1280   # EfficientNet-B0 avgpool output, after stripping classifier
 class ImageSearchService:
 
     def __init__(self):
-        pid = os.getpid()
-        ts = datetime.datetime.utcnow().isoformat()
-        print(
-            f"[ImageSearchService] CREATED pid={pid} id={id(self)} time={ts}",
-            flush=True,
-        )
-        print(f"[ImageSearchService] Torch version : {torch.__version__}", flush=True)
-        print(f"[ImageSearchService] CUDA available: {torch.cuda.is_available()}", flush=True)
-        print(f"[ImageSearchService] Python        : {sys.version}", flush=True)
-        print(f"[ImageSearchService] Working dir   : {os.getcwd()}", flush=True)
-
         # ------------------------------------------------------------------ #
         # STEP 1 — Load EfficientNet-B0                                      #
         # ------------------------------------------------------------------ #
-        print(
-            f"[ImageSearchService] STEP 1 - Loading EfficientNet-B0 (ImageNet weights)...",
-            flush=True,
-        )
         try:
             weights = models.EfficientNet_B0_Weights.DEFAULT
             self.model = models.efficientnet_b0(weights=weights)
@@ -61,77 +43,37 @@ class ImageSearchService:
             # Official ImageNet preprocessing: Resize(256)→CenterCrop(224)→Normalize
             # Must be identical to the pipeline used in generate_image_embeddings.py
             self.preprocess = weights.transforms()
-            print(
-                f"[ImageSearchService] STEP 1 COMPLETE - EfficientNet-B0 ready. "
-                f"embed_dim={_EMBED_DIM}",
-                flush=True,
-            )
-        except Exception:
-            print(
-                "[ImageSearchService] STEP 1 FAILED loading EfficientNet-B0:\n"
-                + traceback.format_exc(),
-                flush=True,
-            )
+        except Exception as e:
             raise RuntimeError(
                 "ImageSearchService: EfficientNet-B0 failed to load. "
                 "Ensure torchvision is installed and internet access is available "
                 "for the first weights download."
-            )
+            ) from e
 
         # ------------------------------------------------------------------ #
         # STEP 2 — FAISS index                                               #
         # ------------------------------------------------------------------ #
         faiss_path = "faiss_indexes/image_index.faiss"
-        print(
-            f"[ImageSearchService] STEP 2 - Loading FAISS index: "
-            f"{os.path.abspath(faiss_path)} (exists={os.path.isfile(faiss_path)})",
-            flush=True,
-        )
         try:
             self.index = faiss.read_index(faiss_path)
-        except Exception:
-            print(
-                "[ImageSearchService] STEP 2 FAILED loading FAISS index:\n"
-                + traceback.format_exc(),
-                flush=True,
-            )
+        except Exception as e:
             raise RuntimeError(
                 f"ImageSearchService: faiss.read_index('{faiss_path}') failed. "
                 f"File exists: {os.path.isfile(faiss_path)}. "
                 f"Ensure faiss_indexes/image_index.faiss is committed and deployed."
-            )
-        print(
-            f"[ImageSearchService] STEP 2 - FAISS index loaded. "
-            f"ntotal={self.index.ntotal}, dim={self.index.d}",
-            flush=True,
-        )
+            ) from e
 
         # ------------------------------------------------------------------ #
         # STEP 3 — Product ID mapping                                        #
         # ------------------------------------------------------------------ #
         npy_path = "embeddings/image/image_product_ids.npy"
-        print(
-            f"[ImageSearchService] STEP 3 - Loading product IDs: "
-            f"{os.path.abspath(npy_path)} (exists={os.path.isfile(npy_path)})",
-            flush=True,
-        )
         try:
             self.product_ids = np.load(npy_path, allow_pickle=False)
-        except Exception:
-            print(
-                "[ImageSearchService] STEP 3 FAILED loading product IDs:\n"
-                + traceback.format_exc(),
-                flush=True,
-            )
+        except Exception as e:
             raise RuntimeError(
                 f"ImageSearchService: np.load('{npy_path}') failed. "
                 f"File exists: {os.path.isfile(npy_path)}."
-            )
-        print(
-            f"[ImageSearchService] STEP 3 - Product IDs loaded. "
-            f"count={len(self.product_ids)}",
-            flush=True,
-        )
+            ) from e
 
         # ------------------------------------------------------------------ #
         # STEP 4 — Dimension alignment check                                 #
@@ -143,7 +85,6 @@ class ImageSearchService:
                 f"Regenerate embeddings with scripts/generate_image_embeddings.py "
                 f"then rebuild the index with scripts/build_image_faiss.py."
             )
-            print(msg, flush=True)
             raise ValueError(msg)
 
         if self.index.ntotal != len(self.product_ids):
@@ -152,45 +93,21 @@ class ImageSearchService:
                 f"FAISS has {self.index.ntotal} vectors but "
                 f"product_ids has {len(self.product_ids)} entries."
             )
-            print(msg, flush=True)
             raise ValueError(msg)
-
-        print(
-            f"[ImageSearchService] STEP 4 - Alignment OK. "
-            f"Serving {self.index.ntotal} products at dim={self.index.d}.",
-            flush=True,
-        )
 
     # ---------------------------------------------------------------------- #
     # search()                                                               #
     # ---------------------------------------------------------------------- #
     def search(self, image_path: str, top_k: int = 5):
-        print(f"[ImageSearchService] Image received: {image_path}", flush=True)
-
         # 1. Load image and encode with EfficientNet-B0
-        try:
-            with Image.open(image_path).convert("RGB") as img:
-                # preprocess: Resize(256) → CenterCrop(224) → ToTensor → Normalize
-                tensor = self.preprocess(img).unsqueeze(0)   # (1, 3, 224, 224)
+        with Image.open(image_path).convert("RGB") as img:
+            # preprocess: Resize(256) → CenterCrop(224) → ToTensor → Normalize
+            tensor = self.preprocess(img).unsqueeze(0)   # (1, 3, 224, 224)
 
-            with torch.no_grad():
-                embedding = self.model(tensor).cpu().numpy().flatten()  # (1280,)
-
-        except Exception:
-            print(
-                "[ImageSearchService] FAILED during image encode:\n"
-                + traceback.format_exc(),
-                flush=True,
-            )
-            raise
+        with torch.no_grad():
+            embedding = self.model(tensor).cpu().numpy().flatten()  # (1280,)
 
         query_embedding = embedding.reshape(1, -1).astype("float32")
-
-        print(
-            f"[ImageSearchService] Embedding shape: {query_embedding.shape} "
-            f"(FAISS dim: {self.index.d})",
-            flush=True,
-        )
 
         if query_embedding.shape[1] != self.index.d:
             raise ValueError(
@@ -201,11 +118,6 @@ class ImageSearchService:
 
         # 2. FAISS search
         distances, indices = self.index.search(query_embedding, top_k)
-        print(
-            f"[ImageSearchService] FAISS search done. "
-            f"indices={indices[0].tolist()}",
-            flush=True,
-        )
         del query_embedding
 
         # 3. Resolve product IDs → DB
@@ -222,8 +134,6 @@ class ImageSearchService:
                         "product": product,
                         "score": 1 / (1 + float(distance)),
                     })
-
-            print(f"[ImageSearchService] Results returned: {len(results)}", flush=True)
 
             # 4. Analytics
             tracker = SearchTrackingService()

@@ -1,8 +1,5 @@
-import datetime
-import os
 from pathlib import Path
 import shutil
-import traceback
 import uuid
 
 from fastapi import APIRouter
@@ -15,23 +12,6 @@ from pydantic import BaseModel
 from app.database.session import SessionLocal
 from app.models.product_attribute import ProductAttribute
 
-# ---------------------------------------------------------------------------
-# DIAGNOSTIC: module-scope import marker
-# This block executes once per Python process that imports this module.
-# If it appears twice with different PIDs → multi-worker.
-# If it appears twice with the same PID → module is being reimported
-# (should never happen in a healthy app — would reset all singletons).
-# ---------------------------------------------------------------------------
-_SEARCH_MODULE_IMPORT_PID = os.getpid()
-_SEARCH_MODULE_IMPORT_TIME = datetime.datetime.utcnow().isoformat()
-print(
-    f"\n[search.py MODULE IMPORT]"
-    f" pid={_SEARCH_MODULE_IMPORT_PID}"
-    f" time={_SEARCH_MODULE_IMPORT_TIME}"
-    f" WEB_CONCURRENCY={os.environ.get('WEB_CONCURRENCY', 'not set')}",
-    flush=True,
-)
-
 
 router = APIRouter(
     prefix="/search",
@@ -42,24 +22,13 @@ text_service = None
 image_service = None
 multimodal_service = None
 
-print(
-    f"[search.py] pid={os.getpid()}"
-    f" singletons initialised: text_service=None image_service=None multimodal_service=None",
-    flush=True,
-)
-
 
 def get_text_service():
     global text_service
 
-    pid = os.getpid()
     if text_service is None:
-        print(f"[get_text_service] pid={pid} CREATING TextSearchService...", flush=True)
         from app.services.search.text_search_service import TextSearchService
         text_service = TextSearchService()
-        print(f"[get_text_service] pid={pid} CREATED id={id(text_service)}", flush=True)
-    else:
-        print(f"[get_text_service] pid={pid} REUSING id={id(text_service)}", flush=True)
 
     return text_service
 
@@ -67,21 +36,9 @@ def get_text_service():
 def get_image_service():
     global image_service
 
-    pid = os.getpid()
     if image_service is None:
-        print(f"[get_image_service] pid={pid} CREATING ImageSearchService...", flush=True)
         from app.services.search.image_search_service import ImageSearchService
-        try:
-            image_service = ImageSearchService()
-            print(f"[get_image_service] pid={pid} CREATED id={id(image_service)}", flush=True)
-        except Exception:
-            print(
-                f"[get_image_service] pid={pid} FAILED:\n" + traceback.format_exc(),
-                flush=True,
-            )
-            raise
-    else:
-        print(f"[get_image_service] pid={pid} REUSING id={id(image_service)}", flush=True)
+        image_service = ImageSearchService()
 
     return image_service
 
@@ -89,14 +46,9 @@ def get_image_service():
 def get_multimodal_service():
     global multimodal_service
 
-    pid = os.getpid()
     if multimodal_service is None:
-        print(f"[get_multimodal_service] pid={pid} CREATING MultimodalSearchService...", flush=True)
         from app.services.search.multimodal_search_service import MultimodalSearchService
         multimodal_service = MultimodalSearchService()
-        print(f"[get_multimodal_service] pid={pid} CREATED id={id(multimodal_service)}", flush=True)
-    else:
-        print(f"[get_multimodal_service] pid={pid} REUSING id={id(multimodal_service)}", flush=True)
 
     return multimodal_service
 

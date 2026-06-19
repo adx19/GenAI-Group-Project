@@ -1,5 +1,3 @@
-import gc
-import os
 import faiss
 import numpy as np
 import torch
@@ -16,22 +14,12 @@ from app.services.analytics.search_tracking_service import (SearchTrackingServic
 
 class TextSearchService:
   def __init__(self):
-    pid = os.getpid()
-    print(f"[TextSearchService] CREATED pid={pid} id={id(self)}", flush=True)
-    print(f"[TextSearchService] pid={pid} Loading all-MiniLM-l6-v2 tokenizer...", flush=True)
     self.tokenizer = AutoTokenizer.from_pretrained("sentence-transformers/all-MiniLM-l6-v2")
-    print(f"[TextSearchService] pid={pid} Loading all-MiniLM-l6-v2 model...", flush=True)
     self.model = AutoModel.from_pretrained("sentence-transformers/all-MiniLM-l6-v2")
     self.model.eval()
-    print(f"[TextSearchService] pid={pid} Model loaded. Loading FAISS index...", flush=True)
 
     self.index = faiss.read_index("faiss_indexes/text_index.faiss")
     self.product_ids = np.load("embeddings/text/product_ids.npy")
-    print(
-        f"[TextSearchService] pid={pid} Ready. "
-        f"ntotal={self.index.ntotal} ids={len(self.product_ids)}",
-        flush=True,
-    )
 
   def _mean_pooling(self, model_output, attention_mask):
     token_embeddings = model_output[0]

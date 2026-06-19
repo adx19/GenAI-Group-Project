@@ -1,6 +1,3 @@
-import datetime
-import os
-
 from app.services.analytics.search_tracking_service import (
     SearchTrackingService
 )
@@ -19,12 +16,7 @@ class MultimodalSearchService:
     """
 
     def __init__(self):
-        pid = os.getpid()
-        ts = datetime.datetime.utcnow().isoformat()
-        print(
-            f"[MultimodalSearchService] CREATED pid={pid} id={id(self)} time={ts}",
-            flush=True,
-        )
+        pass
 
     def search(
         self,
@@ -38,12 +30,6 @@ class MultimodalSearchService:
 
         text_svc = get_text_service()
         image_svc = get_image_service()
-
-        print(
-            f"[MultimodalSearchService] search() using "
-            f"text_svc id={id(text_svc)} image_svc id={id(image_svc)}",
-            flush=True,
-        )
 
         text_results = text_svc.search(
             text_query,
