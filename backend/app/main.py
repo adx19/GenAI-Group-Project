@@ -3,8 +3,9 @@ import threading
 import datetime
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.api.search import router as search_router
 from app.api.analytics import router as analytics_router
@@ -46,6 +47,44 @@ def _rss_mb() -> str:
     except Exception:
         pass
     return "unavailable"
+
+
+# ---------------------------------------------------------------------------
+# DIAGNOSTIC MIDDLEWARE: logs every OPTIONS request BEFORE CORSMiddleware
+# runs, so we can see exactly what the browser sent.
+# This middleware is added AFTER CORSMiddleware (meaning it runs BEFORE it
+# in the Starlette middleware stack — outermost = last added).
+# ---------------------------------------------------------------------------
+class OptionsDebugMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method == "OPTIONS":
+            print(
+                f"\n[OPTIONS DEBUG] >>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>"
+                f"\n  method:  {request.method}"
+                f"\n  url:     {request.url}"
+                f"\n  path:    {request.url.path}"
+                f"\n  Origin:  {request.headers.get('origin', '<MISSING>')}"
+                f"\n  Access-Control-Request-Method:  {request.headers.get('access-control-request-method', '<MISSING>')}"
+                f"\n  Access-Control-Request-Headers: {request.headers.get('access-control-request-headers', '<MISSING>')}"
+                f"\n  Host:    {request.headers.get('host', '<MISSING>')}"
+                f"\n  All headers: {dict(request.headers)}"
+                f"\n[OPTIONS DEBUG] <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<",
+                flush=True,
+            )
+
+        response: Response = await call_next(request)
+
+        if request.method == "OPTIONS":
+            print(
+                f"\n[OPTIONS DEBUG RESPONSE] >>>>>>>>>>>>>>>>>>>>>>>>>>>>"
+                f"\n  status:  {response.status_code}"
+                f"\n  url:     {request.url}"
+                f"\n  response headers: {dict(response.headers)}"
+                f"\n[OPTIONS DEBUG RESPONSE] <<<<<<<<<<<<<<<<<<<<<<<<<<<<",
+                flush=True,
+            )
+
+        return response
 
 
 @asynccontextmanager
@@ -115,6 +154,35 @@ async def lifespan(app: FastAPI):
             flush=True,
         )
 
+    # ------------------------------------------------------------------
+    # DIAGNOSTIC: dump CORS config + registered routes at startup
+    # ------------------------------------------------------------------
+    print(
+        f"\n[LIFESPAN #{count}] pid={pid} ===== CORS CONFIGURATION =====",
+        flush=True,
+    )
+    for middleware in app.user_middleware:
+        if middleware.cls is CORSMiddleware:
+            print(
+                f"  allow_origins:      {middleware.kwargs.get('allow_origins', '<not set>')}"
+                f"\n  allow_origin_regex: {middleware.kwargs.get('allow_origin_regex', '<not set>')}"
+                f"\n  allow_methods:      {middleware.kwargs.get('allow_methods', '<not set>')}"
+                f"\n  allow_headers:      {middleware.kwargs.get('allow_headers', '<not set>')}"
+                f"\n  allow_credentials:  {middleware.kwargs.get('allow_credentials', '<not set>')}",
+                flush=True,
+            )
+    print(
+        f"\n[LIFESPAN #{count}] pid={pid} ===== REGISTERED ROUTES =====",
+        flush=True,
+    )
+    for route in app.routes:
+        methods = getattr(route, "methods", None)
+        print(f"  {methods or 'N/A':30s} {route.path}", flush=True)
+    print(
+        f"[LIFESPAN #{count}] pid={pid} ================================\n",
+        flush=True,
+    )
+
     print(
         f"[LIFESPAN #{count}] pid={pid} Startup complete. "
         f"rss_final={_rss_mb()} Accepting requests.",
@@ -134,6 +202,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# --- CORS middleware (original config — NOT modified) ---
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -143,6 +212,10 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# --- Debug middleware: added AFTER CORS so it wraps OUTSIDE it ---
+# Starlette processes middleware in reverse add-order, so this runs first.
+app.add_middleware(OptionsDebugMiddleware)
 
 app.include_router(search_router)
 app.include_router(analytics_router)
