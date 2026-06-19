@@ -62,6 +62,6 @@ export async function getProduct(id: number | string): Promise<Product> {
 
 export async function getAnalytics(): Promise<AnalyticsData> {
   if (useMocks) return delay(mockAnalytics, 400);
-  const { data } = await api.get<AnalyticsData>("/analytics");
+  const { data } = await api.get<AnalyticsData>("/analytics/");
   return data;
 }
